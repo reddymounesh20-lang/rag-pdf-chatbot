@@ -1,27 +1,71 @@
-
+import streamlit as st
+import tempfile
 from openai import OpenAI
-import os
 
+from langchain_community.llms import Ollama
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import OllamaEmbeddings
 
-print("AI Chatbot (type 'exit' to quit)")
+st.title("📄 RAG PDF Chatbot")
 
-messages = []
+uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 
-while True:
-    user_input = input("You: ")
+if uploaded_file:
 
-    if user_input.lower() == "exit":
-        break
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(uploaded_file.read())
+        temp_path = tmp.name
 
-    messages.append({"role": "user", "content": user_input})
+    st.success("PDF uploaded successfully!")
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages
+    loader = PyPDFLoader(temp_path)
+    documents = loader.load()
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200
     )
 
-    reply = response.choices[0].message.content
-    print("Bot:", reply)
+    docs = splitter.split_documents(documents)
 
+    st.write("Total Chunks:", len(docs))
 
-    messages.append({"role": "assistant", "content": reply})
+    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+    db = FAISS.from_documents(docs, embeddings)
+
+    retriever = db.as_retriever(search_kwargs={"k": 3})
+
+    llm = Ollama(model="mistral")
+
+    question = st.text_input("Ask a question about the PDF")
+
+    if question:
+
+        with st.spinner("Generating answer..."):
+
+            retrieved_docs = retriever.invoke(question)
+
+            context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+
+            prompt = f"""
+You are an AI assistant.
+
+Answer the question ONLY from the context below.
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer:
+"""
+
+            answer = llm.invoke(prompt)
+
+        st.subheader("Answer")
+        st.write(answer)
+
