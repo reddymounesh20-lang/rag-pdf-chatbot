@@ -4,3 +4,5 @@ langchain
 pypdf
 faiss-cpu
 tiktoken
+langchain_community
+langchain_text_splitters
